@@ -10,7 +10,8 @@
 // `<root>` is the importing file's own directory, ascended once per extra
 // leading dot. For absolute imports it is the first of `search_roots()` that
 // holds the file: the current working directory, then each `BITTERASM_PATH`
-// entry, then the install root `~/.bitterasm` (where `install.sh` puts `std/`).
+// entry, then the XDG data roots on non-Apple Unix, and finally the legacy
+// install root `~/.bitterasm` (where `install.sh` puts `std/`).
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -1744,14 +1745,11 @@ fn rename_construct_items(items: &mut [ConstructItem], renames: &mut Renamer) {
 }
 
 /// The directories an absolute (no leading dots) module path is looked up
-/// under, in priority order: the current working directory, each entry of
-/// `BITTERASM_PATH` (split like `PATH`), the install root
-/// `~/.bitterasm`. On non-Apple Unix systems, these are followed by
-/// `$XDG_DATA_HOME/bitterasm` (defaulting to
-/// `~/.local/share/bitterasm`) and each `$XDG_DATA_DIRS/bitterasm`
-/// (defaulting to `/usr/local/share/bitterasm` and
-/// `/usr/share/bitterasm`). A project's own 
-/// `std/` therefore shadows the installed one.
+/// under, in priority order: the current working directory and each entry of
+/// `BITTERASM_PATH` (split like `PATH`). On non-Apple Unix systems, these are
+/// followed by `$XDG_DATA_HOME/bitterasm` and each
+/// `$XDG_DATA_DIRS/bitterasm`. The legacy install root `~/.bitterasm` is
+/// searched last. A project's own `std/` therefore shadows the installed one.
 pub fn search_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
@@ -1768,14 +1766,10 @@ pub fn search_roots() -> Vec<PathBuf> {
 
     let home_dir = std::env::home_dir();
 
-    if let Some(home) = &home_dir {
-        roots.push(home.join(".bitterasm"));
-    }
-
     #[cfg(all(unix, not(target_vendor = "apple")))] 
     {
         const DEFAULT_DATA_DIRS: [&str; 2] = [
-            "/usr/local/share:/usr/share",
+            "/usr/local/share",
             "/usr/share",
         ];
 
@@ -1785,7 +1779,7 @@ pub fn search_roots() -> Vec<PathBuf> {
             .or_else(|| home_dir.as_ref().map(|home| home.join(".local/share")))
             .filter(|path| path.is_absolute());
 
-        let configured_data_dirs = std::env::var_os("XDG_DATA_DIRS")
+        let configured_data_dirs = std::env::var_os("XDG_DATA_DIRS");
         let mut data_dirs: Vec<PathBuf> = configured_data_dirs
             .as_deref()
             .into_iter()
@@ -1803,6 +1797,10 @@ pub fn search_roots() -> Vec<PathBuf> {
                 .chain(data_dirs)
                 .map(|dir| dir.join("bitterasm"))
         )
+    }
+
+    if let Some(home) = &home_dir {
+        roots.push(home.join(".bitterasm"));
     }
 
     roots

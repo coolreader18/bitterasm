@@ -1745,8 +1745,13 @@ fn rename_construct_items(items: &mut [ConstructItem], renames: &mut Renamer) {
 
 /// The directories an absolute (no leading dots) module path is looked up
 /// under, in priority order: the current working directory, each entry of
-/// `BITTERASM_PATH` (split like `PATH`), then the install root
-/// `~/.bitterasm`. A project's own `std/` therefore shadows the installed one.
+/// `BITTERASM_PATH` (split like `PATH`), the install root
+/// `~/.bitterasm`. On non-Apple Unix systems, these are followed by
+/// `$XDG_DATA_HOME/bitterasm` (defaulting to
+/// `~/.local/share/bitterasm`) and each `$XDG_DATA_DIRS/bitterasm`
+/// (defaulting to `/usr/local/share/bitterasm` and
+/// `/usr/share/bitterasm`). A project's own 
+/// `std/` therefore shadows the installed one.
 pub fn search_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
@@ -1755,7 +1760,10 @@ pub fn search_roots() -> Vec<PathBuf> {
     }
 
     if let Some(paths) = std::env::var_os("BITTERASM_PATH") {
-        roots.extend(std::env::split_paths(&paths).filter(|path| !path.as_os_str().is_empty()));
+        roots.extend(
+            std::env::split_paths(&paths)
+                .filter(|path| !path.as_os_str().is_empty())
+        );
     }
 
     let home_dir = std::env::home_dir();
@@ -1764,22 +1772,37 @@ pub fn search_roots() -> Vec<PathBuf> {
         roots.push(home.join(".bitterasm"));
     }
 
-    if cfg!(all(unix, not(target_vendor = "apple"))) {
-        const DEFAULT_DATA_DIRS: &str = "/usr/local/share:/usr/share";
+    #[cfg(all(unix, not(target_vendor = "apple")))] 
+    {
+        const DEFAULT_DATA_DIRS: [&str; 2] = [
+            "/usr/local/share:/usr/share",
+            "/usr/share",
+        ];
 
         let data_home = std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
-            .or_else(|| Some(home_dir.as_ref()?.join(".local/share")));
-
-        let data_dirs = std::env::var_os("XDG_DATA_DIRS");
-        let data_dirs = data_dirs.as_deref().unwrap_or(DEFAULT_DATA_DIRS.as_ref());
-        let data_dirs = std::env::split_paths(data_dirs);
-
-        let dirs = std::iter::chain(data_home, data_dirs)
             .filter(|path| path.is_absolute())
-            .map(|path| path.join("bitterasm"));
+            .or_else(|| home_dir.as_ref().map(|home| home.join(".local/share")))
+            .filter(|path| path.is_absolute());
 
-        roots.extend(dirs);
+        let configured_data_dirs = std::env::var_os("XDG_DATA_DIRS")
+        let mut data_dirs: Vec<PathBuf> = configured_data_dirs
+            .as_deref()
+            .into_iter()
+            .flat_map(std::env::split_paths)
+            .filter(|path| path.is_absolute())
+            .collect();
+
+        if data_dirs.is_empty() {
+            data_dirs.extend(DEFAULT_DATA_DIRS.map(PathBuf::from));
+        }
+
+        roots.extend(
+            data_home
+                .into_iter()
+                .chain(data_dirs)
+                .map(|dir| dir.join("bitterasm"))
+        )
     }
 
     roots

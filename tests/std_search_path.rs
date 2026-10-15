@@ -39,6 +39,8 @@ fn compile(cwd: &Path, home: &Path, bitterasm_path: Option<&Path>) -> Output {
         .current_dir(cwd)
         .env("HOME", home)
         .env("USERPROFILE", home)
+        .env("XDG_DATA_HOME", home.join("xdg-data"))
+        .env("XDG_DATA_DIRS", home.join("xdg-data-dirs"))
         .env_remove("BITTERASM_PATH")
         .args(["compile", "main.basm", "-o", "main.em"]);
 
